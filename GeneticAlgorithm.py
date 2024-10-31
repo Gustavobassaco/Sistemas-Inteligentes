@@ -1,212 +1,180 @@
-import random
-from SnakeGame import *
-import time
+# -------------------------------------------------------------------------------------------------
+# import required packages/libraries
+# -------------------------------------------------------------------------------------------------
+from Demo import FlappyBird_Human
+from MLP import MLP
+import numpy as np
+
+# -------------------------------------------------------------------------------------------------
+# A class for a Individual
+# -------------------------------------------------------------------------------------------------
+
+class Individuo:
+    def __init__(self, pesos_entrada_oculta, pesos_oculta_saida, bias_oculta, bias_saida):
+        self.pesos_entrada_oculta = pesos_entrada_oculta
+        self.pesos_oculta_saida = pesos_oculta_saida
+        self.bias_oculta = bias_oculta
+        self.bias_saida = bias_saida
+
+# -------------------------------------------------------------------------------------------------
+# A class for a Genetic Algorithm 
+# -------------------------------------------------------------------------------------------------
 
 class GeneticAlgorithm:
-    population = []
-    numberOfGenerations = 70
-    populationSize = 100
-    mutationRate = 0.001
-    bestIndividual = []
-    bestFitness = []
-    bestScore = []
-    score = 0
-
-    game = SnakeGame()
     
-    def ini(self):
-        pass
+    # constructor
+    def __init__(self, entrada = 5, oculta= 10, saida = 1, taxaDeAprendizado = 0.1, numberOfGenerations=100, populationSize=30, 
+                 mutationRate=0.01, elitism=6):
 
-    def generateInitialPopulation(self):
+        self.taxaDeAprendizado = taxaDeAprendizado
+        self.tam_entrada = entrada
+        self.tam_oculta = oculta
+        self.tam_saida = saida
+        self.fb = FlappyBird_Human()
+
         self.population = []
-        for _ in range(self.populationSize):
-            # Gera um indivíduo (AI da Snake) aleatório
-            individual = self.generateRandomIndividual()
-            self.population.append(individual)
+        self.numberOfGenerations = numberOfGenerations
+        self.stopEarlyCriteria = 10
+        self.populationSize = populationSize
+        self.mutationRate = mutationRate
+        self.bestIndividual = []
+        self.bestFitness = []
+        self.elitism = elitism
 
-    def generateRandomIndividual(self):
-        # Gera uma sequência aleatória de movimentos (UP, DOWN, LEFT, RIGHT) para a AI da Snake
-        moves = ['UP', 'DOWN', 'LEFT', 'RIGHT']
-        individual = [random.choice(moves) for _ in range(10)]
-        return individual
+
+        
     
-    def fitnessFunction(self, individual):
-        # Configura o estado inicial do jogo
-        game = SnakeGame()
-        game.snake_speed = 0  # Define a velocidade da Snake como 0 para o jogo ser passo a passo
-        game.direction = individual[0]  # Define a direção inicial
+    # generate the initial population
+    def generateInitialPopulation(self):
+        self.individuos = []
+        for _ in range(self.populationSize):
+            pesos_entrada_oculta = np.random.uniform(size=(self.tam_entrada, self.tam_oculta))
+            pesos_oculta_saida = np.random.uniform(size=(self.tam_oculta, self.tam_saida))
+            bias_oculta = np.zeros((1, self.tam_oculta))
+            bias_saida = np.zeros((1, self.tam_saida))
 
-        # Executa o jogo passo a passo e avalia o valor de aptidão
-        fitness = 0
-        sair = False
-        tempo = 0
-        score = game.score
-        dist = game.distance_to_food()
-        for move in individual[1:]:
-            game.change_to = move
-            game.run_step()
+            individuo = Individuo(pesos_entrada_oculta, pesos_oculta_saida, bias_oculta, bias_saida)
+            self.individuos.append(individuo)
 
-            if not game.is_heading_towards_food():
-                fitness -= 1
+    def selectParents(self, fitness):
+        # Seleção de pais proporcional ao desempenho (Roleta)
+        total_fitness = np.sum(fitness)
+        probabilities = fitness / total_fitness
 
-            if score != game.score:
-                score = game.score
-                fitness -= (tempo - dist/10)/2
-                tempo = 0
-                dist = game.distance_to_food()
-            tempo += 1
+        # Escolha aleatória com base nas probabilidades
+        selected_parents = np.random.choice(self.individuos, size=2, p=probabilities.flatten())
 
-            if game.snake_position[0] < 0 or game.snake_position[0] > game.window_x - 10 or \
-                    game.snake_position[1] < 0 or game.snake_position[1] > game.window_y - 10:
-                game.ini
-                break  
-            for block in game.snake_body[1:]:
-                if game.snake_position[0] == block[0] and game.snake_position[1] == block[1]:
-                    game.ini
-                    sair = True
-                    break
-            if sair: break
-
-        fitness += len(individual)
-        fitness += game.score*100  # Usa o valor do score como valor de aptidão
-        self.score = game.score
-        game.ini
-        return fitness
-
-    def evaluateIndividual(self, individual):
-        fitness = self.fitnessFunction(individual)
-        return fitness
-
-    def selectParents(self):
-        # Seleção por torneio
-        tournamentSize = 3
-        selectedParents = []
-        for _ in range(2):
-            tournament = random.sample(self.population, tournamentSize)
-            bestIndividual = max(tournament, key=self.evaluateIndividual)
-            selectedParents.append(bestIndividual)
-        return selectedParents
-
+        return selected_parents
+    
+    # given two parents, generate two children recombining them
     def generateChildren(self, parents):
         parent1, parent2 = parents
 
-        # Define os pontos de crossover
-        crossoverPoint1 = random.randint(1, min(len(parent1), len(parent2)) - 1)
-        crossoverPoint2 = random.randint(crossoverPoint1, min(len(parent1), len(parent2)) - 1)
+        # Crossover (recombinação) em um ponto para cada matriz
+        crossover_point1 = np.random.randint(self.tam_entrada)
+        crossover_point2 = np.random.randint(self.tam_oculta)
+        crossover_point3 = np.random.randint(self.tam_oculta)
+        crossover_point4 = np.random.randint(self.tam_saida)
+        child1 = Individuo(
+            np.concatenate([parent1.pesos_entrada_oculta[:crossover_point1], parent2.pesos_entrada_oculta[crossover_point1:]]),
+            np.concatenate([parent1.pesos_oculta_saida[:crossover_point2], parent2.pesos_oculta_saida[crossover_point2:]]),
+            np.concatenate([parent1.bias_oculta[:crossover_point3], parent2.bias_oculta[crossover_point3:]]),
+            np.concatenate([parent1.bias_saida[:crossover_point4], parent2.bias_saida[crossover_point4:]])
+        )
 
-        child1 = parent1[:crossoverPoint1] + parent2[crossoverPoint1:crossoverPoint2] + parent1[crossoverPoint2:]
-        child2 = parent2[:crossoverPoint1] + parent1[crossoverPoint1:crossoverPoint2] + parent2[crossoverPoint2:]
-
-        return child1, child2
-
-    def mutationOperator(self, individual):
-        mutatedIndividual = individual.copy()
-        for i in range(len(mutatedIndividual)):
-            if random.random() < self.mutationRate:
-                # Altera aleatoriamente o movimento na posição i
-                moves = ['UP', 'DOWN', 'LEFT', 'RIGHT']
-                moves.remove(mutatedIndividual[i])  # Remove o movimento atual das possibilidades de movimento
-                mutatedIndividual[i] = random.choice(moves)
-        return mutatedIndividual
+        child2 = Individuo(
+            np.concatenate([parent2.pesos_entrada_oculta[:crossover_point1], parent1.pesos_entrada_oculta[crossover_point1:]]),
+            np.concatenate([parent2.pesos_oculta_saida[:crossover_point2], parent1.pesos_oculta_saida[crossover_point2:]]),
+            np.concatenate([parent2.bias_oculta[:crossover_point3], parent1.bias_oculta[crossover_point3:]]),
+            np.concatenate([parent2.bias_saida[:crossover_point4], parent1.bias_saida[crossover_point4:]])
+        )
+        return child1, child2 
     
-    def generateNewPopulation(self, individuos):
-        moves = ['UP', 'DOWN', 'LEFT', 'RIGHT']
 
-        for i in range(len(individuos)):
-            game = SnakeGame()
-            game.snake_speed = 0
-            game.direction = individuos[i][0]  
+    # selects an individual and apply a mutation
+    def mutationOperator(self, individual):
+        for i in range(len(individual.pesos_entrada_oculta.flatten())):
+            if np.random.rand() < self.mutationRate:
+                individual.pesos_entrada_oculta.flat[i] += np.random.uniform(-0.5, 0.5)
 
-            sair = False
-            for move in individuos[i][1:]:
-                game.change_to = move
-                game.run_step()
+        for i in range(len(individual.pesos_oculta_saida.flatten())):
+            if np.random.rand() < self.mutationRate:
+                individual.pesos_oculta_saida.flat[i] += np.random.uniform(-0.5, 0.5)
 
-                if game.snake_position[0] < 0 or game.snake_position[0] > game.window_x - 10 or \
-                        game.snake_position[1] < 0 or game.snake_position[1] > game.window_y - 10:
-                    sair = True
-                    game.ini
-                    break  
-                for block in game.snake_body[1:]:
-                    if game.snake_position[0] == block[0] and game.snake_position[1] == block[1]:
-                        game.ini
-                        sair = True
-                        break
-                if sair: break
+        for i in range(len(individual.bias_oculta.flatten())):
+            if np.random.rand() < self.mutationRate:
+                individual.bias_oculta.flat[i] += np.random.uniform(-0.5, 0.5)
 
-            while not sair:
-                mov = random.choice(moves) 
+        for i in range(len(individual.bias_saida.flatten())):
+            if np.random.rand() < self.mutationRate:
+                individual.bias_saida.flat[i] += np.random.uniform(-0.5, 0.5)
 
-                game.change_to = mov
-                game.run_step()
+        return individual
+    
 
-                if game.snake_position[0] < 0 or game.snake_position[0] > game.window_x - 10 or \
-                        game.snake_position[1] < 0 or game.snake_position[1] > game.window_y - 10:
-                    game.ini
-                    sair = True
-                    break  
-                for block in game.snake_body[1:]:
-                    if game.snake_position[0] == block[0] and game.snake_position[1] == block[1]:
-                        game.ini
-                        sair = True
-                        break
-                if sair: break
-                else: individuos[i].append(mov)
-
-            game.ini
-        return individuos
-
-    def execute(self):
+    # run GA
+    def execut(self):
         self.generateInitialPopulation()
-        for generation in range(self.numberOfGenerations):
-            newPopulation = self.generateNewPopulation(self.population)
-            for _ in range(self.populationSize // 2):
-                parents = self.selectParents()
+        # cada geração
+        gen = 0
+        genaux = 0
+        while genaux < self.numberOfGenerations:
+        #for i in range(self.numberOfGenerations):
+            gen += 1
+            genaux += 1
+            #print('-'*30)
+            # cria uma mlp com os pesos
+            fitness = []
+            for j in range(self.populationSize):
+                print('Geracao ' +str(genaux) + '  mlp ' + str(j) + '  ', end='')
+                mlp = MLP(entrada = self.tam_entrada, oculta = self.tam_oculta, saida = self.tam_saida,
+                        taxaDeAprendizado=self.taxaDeAprendizado, fb=self.fb,
+                        pesos_entrada_oculta= self.individuos[j].pesos_entrada_oculta,
+                        pesos_oculta_saida=self.individuos[j].pesos_oculta_saida,
+                        bias_oculta=self.individuos[j].bias_oculta,
+                        bias_saida=self.individuos[j].bias_saida)
+                retorno = mlp.treinamento()
+                fitness.append(retorno[0])
+                self.individuos[j].pesos_entrada_oculta = retorno[1]
+                self.individuos[j].pesos_oculta_saida = retorno[2]
+                self.individuos[j].bias_oculta = retorno[3]
+                self.individuos[j].bias_saida = retorno[4]
+            
+            # Adiciona o melhor fitness à lista
+            maximo = max(fitness)
+            self.bestFitness.append(maximo)
+
+
+            # Seleciona os melhores indivíduos com elitismo
+            best_indices = np.argsort(fitness)[-self.elitism:]
+            best_indice = np.argsort(fitness)[-1]
+
+            best_individuals = [self.individuos[idx] for idx in best_indices]
+            self.bestIndividual.append(self.individuos[best_indice])
+
+            # Criterio de parada, atingido quando um individo se aproximo do ideial
+            if maximo > 200:
+                print('AQQUUII ' + str(maximo))
+                genaux = 100000
+
+            # Seleção, crossover e mutação para criar nova população
+            new_population = []
+            new_population.extend(best_individuals)
+
+            for _ in range((self.populationSize - len(best_individuals)) // 2):
+                parents = self.selectParents(fitness)
                 children = self.generateChildren(parents)
-                for child in children:
-                    if random.random() < self.mutationRate:
-                        child = self.mutationOperator(child)
-                    newPopulation.append(child)
-            self.population = newPopulation
+                children = [self.mutationOperator(child) for child in children]
+                new_population.extend(children)
 
-            bestIndividual = max(self.population, key=self.evaluateIndividual)
-            bestFitness = self.evaluateIndividual(bestIndividual)
-            self.bestIndividual.append(bestIndividual)
-            self.bestFitness.append(bestFitness)
-            self.bestScore.append(self.score)
+            # Atualiza a população
+            self.individuos = np.array(new_population)
 
-            print('='*50)
-            print('Geração: ',generation)
-            print('Tamanho: ', len(bestIndividual))
-            print('Melhor aptidão: ',bestFitness)
-            print('Score: ', self.score)
+        best_indice = np.argsort(self.bestFitness)[-1]
+        return self.bestFitness[best_indice], self.bestIndividual[best_indice], gen
 
-            if(generation > 100):
-                game = SnakeGame()
-                game.snake_speed = 0  # Define a velocidade da Snake como 0 para o jogo passo a passo
-                game.direction = bestIndividual[0]  # Define a direção inicial
-                sair = False
-                
-                for move in bestIndividual[1:]:
-                    time.sleep(0.05)
-                    game.change_to = move
-                    game.run_stepT()
-
-                    if game.snake_position[0] < 0 or game.snake_position[0] > game.window_x - 10 or \
-                        game.snake_position[1] < 0 or game.snake_position[1] > game.window_y - 10:
-                        print('Score:', game.score)
-                        break  # Interrompe a avaliação se o jogo acabar
-
-                    for block in game.snake_body[1:]:
-                        if game.snake_position[0] == block[0] and game.snake_position[1] == block[1]:
-                            print('Score:', game.score)
-                            sair = True
-                            break
-                    if sair:
-                        break
-
-                if not sair:
-                    print('Score:', game.score)
-                
-                game.ini
-        return self.bestIndividual, self.bestFitness, self.bestScore
+            
+            
+if __name__ == "__main__":
+    ga = GeneticAlgorithm(2, 5, 1, 0.1)
+    ga.execute()
